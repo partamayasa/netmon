@@ -22,20 +22,7 @@ if (!isset($_SESSION['user_id'])) {
 
 $logsTable = env('DB_TABLE_LOGS', 'internet_logs');
 
-// API endpoint for dynamic JSON consumption
-if (isset($_GET['api']) && $_GET['api'] === 'logs') {
-    header('Content-Type: application/json; charset=utf-8');
-    try {
-        $pdo = get_db_connection();
-        $stmt = $pdo->query("SELECT id, status, public_ip, created_at FROM {$logsTable} ORDER BY id DESC");
-        $data = $stmt->fetchAll();
-        echo json_encode($data);
-    } catch (Exception $e) {
-        http_response_code(500);
-        echo json_encode(['error' => $e->getMessage()]);
-    }
-    exit;
-}
+
 
 // Server-side query for initial load
 $logs = [];
@@ -76,19 +63,31 @@ if (!empty($rawCreatedAt)) {
     $formattedLastUpdate = '-';
 }
 
-// Connection Status based on 15-minute interval:
-// If latest log is within interval <= 15 minutes (900 seconds) -> Connected (Green)
-// If latest log was recorded > 15 minutes ago (or no logs) -> Disconnected (Red)
-$currentTime = time();
-$diffSeconds = ($timestamp !== null) ? ($currentTime - $timestamp) : null;
-$fifteenMinutesInSeconds = 15 * 60; // 900 seconds
+// Connection Status:
+// Exclusively determined by gateway_status.json (produced by server-side net-probe ping to 100.64.0.1)
+$gatewayStatusFile = __DIR__ . '/gateway_status.json';
+$gatewayData = null;
+if (file_exists($gatewayStatusFile)) {
+    $rawGatewayJson = @file_get_contents($gatewayStatusFile);
+    $gatewayData = @json_decode($rawGatewayJson, true);
+}
 
-if ($diffSeconds !== null && $diffSeconds <= $fifteenMinutesInSeconds) {
-    $latestStatus = 'Connected';
+$statusTimestamp = !empty($gatewayData['updated_at']) ? (int)$gatewayData['updated_at'] : null;
+$statusDiff = $statusTimestamp !== null ? (time() - $statusTimestamp) : null;
+$statusTimeoutLimit = (int)env('PROBE_STATUS_TIMEOUT', 90); // 90s (1.5 min) tolerance window for 1-minute cron
+$isGatewayConnected = !empty($gatewayData['status']) && (strcasecmp($gatewayData['status'], 'Connected') === 0);
+
+$statusTimeStr = '';
+if ($statusTimestamp !== null) {
+    $statusTimeStr = ' (' . date('H:i', $statusTimestamp) . ')';
+}
+
+if ($statusDiff !== null && $statusDiff <= $statusTimeoutLimit && $isGatewayConnected) {
+    $latestStatus = 'Connected' . $statusTimeStr;
     $statusBgClass = 'text-bg-success';
     $statusIconClass = 'bi-wifi';
 } else {
-    $latestStatus = 'Disconnected';
+    $latestStatus = 'Disconnected' . $statusTimeStr;
     $statusBgClass = 'text-bg-danger';
     $statusIconClass = 'bi-wifi-off';
 }
@@ -146,6 +145,7 @@ $latestIp = !empty($latestLog['public_ip']) ? trim($latestLog['public_ip']) : '-
     <!--end::Required Plugin(AdminLTE)-->
 
     <link rel="stylesheet" href="./assets/vendor/tabulator/tabulator_bootstrap5.min.css" />
+
   </head>
   <body class="layout-fixed sidebar-expand-lg bg-body-tertiary">
     <div class="app-wrapper">
@@ -284,7 +284,7 @@ $latestIp = !empty($latestLog['public_ip']) ? trim($latestLog['public_ip']) : '-
 
                   <div class="info-box-content">
                     <span class="info-box-text">Total Logs</span>
-                    <span class="info-box-number"><?= number_format($totalLogs) ?></span>
+                    <span class="info-box-number" id="card-total-logs"><?= number_format($totalLogs) ?></span>
                   </div>
                   <!-- /.info-box-content -->
                 </div>
@@ -299,7 +299,7 @@ $latestIp = !empty($latestLog['public_ip']) ? trim($latestLog['public_ip']) : '-
 
                   <div class="info-box-content">
                     <span class="info-box-text">Last Updated</span>
-                    <span class="info-box-number"><?= htmlspecialchars($formattedLastUpdate) ?></span>
+                    <span class="info-box-number" id="card-last-updated"><?= htmlspecialchars($formattedLastUpdate) ?></span>
                   </div>
                   <!-- /.info-box-content -->
                 </div>
@@ -333,7 +333,7 @@ $latestIp = !empty($latestLog['public_ip']) ? trim($latestLog['public_ip']) : '-
 
                   <div class="info-box-content">
                     <span class="info-box-text">Latest Public IP</span>
-                    <span class="info-box-number"><?= htmlspecialchars($latestIp) ?></span>
+                    <span class="info-box-number" id="card-latest-ip"><?= htmlspecialchars($latestIp) ?></span>
                   </div>
                   <!-- /.info-box-content -->
                 </div>
@@ -537,7 +537,15 @@ $latestIp = !empty($latestLog['public_ip']) ? trim($latestLog['public_ip']) : '-
           paginationSizeSelector: [10, 25, 50, 100],
           movableColumns: true,
           columns: [
-            { title: '#', field: 'id', width: 60, headerSort: true },
+            {
+              title: '#',
+              formatter: 'rownum',
+              formatterParams: { relativeToPage: true },
+              hozAlign: 'center',
+              width: 60,
+              headerSort: false,
+              accessorDownload: (value, data, type, params, column, row) => row.getPosition(true),
+            },
             {
               title: 'Status',
               field: 'status',
@@ -612,29 +620,57 @@ $latestIp = !empty($latestLog['public_ip']) ? trim($latestLog['public_ip']) : '-
           .getElementById('export-json')
           .addEventListener('click', () => table.download('json', 'internet_logs.json'));
 
-        // Auto-update status every 15-minute interval if page remains open
-        const lastLogTimestamp = <?= $timestamp ? (int)$timestamp : 0 ?>;
-        if (lastLogTimestamp > 0) {
-          const checkStatusInterval = () => {
-            const nowSec = Math.floor(Date.now() / 1000);
-            const diff = nowSec - lastLogTimestamp;
-            const iconBox = document.getElementById('card-status-icon-box');
-            const icon = document.getElementById('card-status-icon');
-            const text = document.getElementById('card-status-text');
-            if (!iconBox || !icon || !text) return;
+        // Auto-check gateway_status.json every 1 minute (60s) for real-time status
+        const updateGatewayStatus = async () => {
+          const iconBox = document.getElementById('card-status-icon-box');
+          const icon = document.getElementById('card-status-icon');
+          const text = document.getElementById('card-status-text');
+          if (!iconBox || !icon || !text) return;
 
-            if (diff <= 15 * 60) {
+          try {
+            const res = await fetch('./gateway_status.json?v=' + Date.now(), { cache: 'no-store' });
+            if (!res.ok) return;
+            const data = await res.json();
+            if (!data || !data.status) return;
+
+            const nowSec = Math.floor(Date.now() / 1000);
+            const ts = Number(data.updated_at) || 0;
+            const diff = ts > 0 ? (nowSec - ts) : null;
+            const isConnected = String(data.status).trim().toLowerCase() === 'connected';
+            const timeoutLimit = <?= (int)env('PROBE_STATUS_TIMEOUT', 90) ?>;
+
+            let timeStr = '';
+            if (data.updated_date && typeof data.updated_date === 'string') {
+              const parts = data.updated_date.trim().split(' ');
+              if (parts.length >= 2) {
+                const timeParts = parts[1].split(':');
+                if (timeParts.length >= 2) {
+                  timeStr = ` (${timeParts[0]}:${timeParts[1]})`;
+                }
+              }
+            } else if (ts > 0) {
+              const d = new Date(ts * 1000);
+              const hh = String(d.getHours()).padStart(2, '0');
+              const mm = String(d.getMinutes()).padStart(2, '0');
+              timeStr = ` (${hh}:${mm})`;
+            }
+
+            if (diff !== null && diff <= timeoutLimit && isConnected) {
               iconBox.className = 'info-box-icon text-bg-success shadow-sm';
               icon.className = 'bi bi-wifi';
-              text.textContent = 'Connected';
+              text.textContent = 'Connected' + timeStr;
             } else {
               iconBox.className = 'info-box-icon text-bg-danger shadow-sm';
               icon.className = 'bi bi-wifi-off';
-              text.textContent = 'Disconnected';
+              text.textContent = 'Disconnected' + timeStr;
             }
-          };
-          setInterval(checkStatusInterval, 30000);
-        }
+          } catch (e) {
+            // Ignore fetch errors
+          }
+        };
+
+        // Run check every 60 seconds (1 minute)
+        setInterval(updateGatewayStatus, 60000);
 
         // ==========================================
         // Change Password Feature (Modal Popup)

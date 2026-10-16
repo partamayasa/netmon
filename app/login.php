@@ -44,14 +44,19 @@ try {
     $error_msg = 'Database connection error: ' . $e->getMessage();
 }
 
-// ALTCHA Configuration
-$altchaApiKey = env('ALTCHA_API_KEY', 'altcha_key_cfcf19784ea0bd2e5cfdd7544daf2947');
-$altchaChallengeUrl = env('ALTCHA_CHALLENGE_URL', 'https://altcha.silverlightning.my.id/challenge?apiKey=' . $altchaApiKey);
-$altchaVerifyUrl = env('ALTCHA_VERIFY_URL', 'https://altcha.silverlightning.my.id/verify');
+// Application & ALTCHA Configuration
+$appUrl = env('APP_URL');
+$altchaApiKey = env('ALTCHA_API_KEY');
+$altchaChallengeUrl = env('ALTCHA_CHALLENGE_URL');
+$altchaVerifyUrl = env('ALTCHA_VERIFY_URL');
 
 // Ensure HTTPS is always enforced to prevent browser Mixed-Content blocking
-$altchaChallengeUrl = preg_replace('/^http:\/\//i', 'https://', $altchaChallengeUrl);
-$altchaVerifyUrl = preg_replace('/^http:\/\//i', 'https://', $altchaVerifyUrl);
+if ($altchaChallengeUrl) {
+    $altchaChallengeUrl = preg_replace('/^http:\/\//i', 'https://', $altchaChallengeUrl);
+}
+if ($altchaVerifyUrl) {
+    $altchaVerifyUrl = preg_replace('/^http:\/\//i', 'https://', $altchaVerifyUrl);
+}
 
 // Handle Login Form Submission
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && $pdo) {
@@ -76,11 +81,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $pdo) {
             curl_setopt($ch, CURLOPT_POSTFIELDS, $postData);
             curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
             curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, false);
-            curl_setopt($ch, CURLOPT_HTTPHEADER, [
+            $httpHeaders = [
                 'Content-Type: application/json',
                 'Authorization: Bearer ' . $altchaApiKey,
-                'Origin: https://inetmonitor.silverlightning.my.id',
-            ]);
+            ];
+            if (!empty($appUrl)) {
+                $httpHeaders[] = 'Origin: ' . rtrim($appUrl, '/');
+            }
+            curl_setopt($ch, CURLOPT_HTTPHEADER, $httpHeaders);
             curl_setopt($ch, CURLOPT_TIMEOUT, 10);
             $response = curl_exec($ch);
             $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
@@ -98,12 +106,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $pdo) {
                 $altchaError = 'Connection to verification service failed: ' . $curlErr;
             }
         } else {
+            $headerLines = "Content-Type: application/json\r\n" .
+                           "Authorization: Bearer " . $altchaApiKey . "\r\n";
+            if (!empty($appUrl)) {
+                $headerLines .= "Origin: " . rtrim($appUrl, '/') . "\r\n";
+            }
             $opts = [
                 'http' => [
                     'method'  => 'POST',
-                    'header'  => "Content-Type: application/json\r\n" .
-                                 "Authorization: Bearer " . $altchaApiKey . "\r\n" .
-                                 "Origin: https://inetmonitor.silverlightning.my.id\r\n",
+                    'header'  => $headerLines,
                     'content' => $postData,
                     'timeout' => 10,
                     'ignore_errors' => true

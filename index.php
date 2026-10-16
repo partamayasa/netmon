@@ -392,7 +392,7 @@ $latestIp = !empty($latestLog['public_ip']) ? trim($latestLog['public_ip']) : '-
         <!--begin::Copyright-->
         <strong>
           Copyright &copy; <?= date('Y') ?>&nbsp;
-          <a href="https://monitoring.partamayasa.my.id" class="text-decoration-none" target="_blank" rel="noopener">Home Monitoring System</a>.
+          <a href="<?= htmlspecialchars(env('APP_URL') ?: '#') ?>" class="text-decoration-none" target="_blank" rel="noopener"><?= htmlspecialchars(env('APP_NAME', 'Home Monitoring System')) ?></a>.
         </strong>
         All rights reserved.
         <!--end::Copyright-->

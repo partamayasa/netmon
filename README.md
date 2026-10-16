@@ -90,6 +90,7 @@ Open `.env` and fill in your database credentials:
 # Application Settings
 APP_NAME="Home Internet Monitoring System"
 APP_SHORT_NAME="InternetMonitoring"
+APP_URL=https://netmon.example.com
 APP_TIMEZONE="Asia/Makassar"
 
 # Database Configuration

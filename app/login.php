@@ -1,0 +1,217 @@
+<?php
+require_once dirname(__DIR__) . '/config/config.php';
+
+// If already logged in, redirect to index.php
+if (isset($_SESSION['user_id'])) {
+    header('Location: ../index.php');
+    exit;
+}
+
+$error_msg = null;
+$success_msg = null;
+$pdo = null;
+$usersTable = env('DB_TABLE_USERS', 'users');
+
+try {
+    $pdo = get_db_connection();
+
+    // Ensure users table exists with bcrypt password column
+    $pdo->exec("
+        CREATE TABLE IF NOT EXISTS {$usersTable} (
+            id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+            username VARCHAR(50) NOT NULL UNIQUE,
+            email VARCHAR(100) NOT NULL UNIQUE,
+            password VARCHAR(255) NOT NULL,
+            name VARCHAR(100) NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+    ");
+
+    // Auto-seed initial admin user with bcrypt if table is empty
+    $countCheck = $pdo->query("SELECT COUNT(*) FROM {$usersTable}")->fetchColumn();
+    if ($countCheck == 0) {
+        $defaultUser = env('ADMIN_DEFAULT_USER', 'admin');
+        $defaultEmail = env('ADMIN_DEFAULT_EMAIL', 'admin@example.com');
+        $defaultPassword = env('ADMIN_DEFAULT_PASSWORD', 'admin123');
+        $defaultName = env('ADMIN_DEFAULT_NAME', 'Administrator');
+
+        $hashedBcrypt = password_hash($defaultPassword, PASSWORD_BCRYPT);
+        $seedStmt = $pdo->prepare("INSERT INTO {$usersTable} (username, email, password, name) VALUES (?, ?, ?, ?)");
+        $seedStmt->execute([$defaultUser, $defaultEmail, $hashedBcrypt, $defaultName]);
+    }
+} catch (Exception $e) {
+    $error_msg = 'Database connection error: ' . $e->getMessage();
+}
+
+// Handle Login Form Submission
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && $pdo) {
+    $loginInput = trim($_POST['username'] ?? '');
+    $passwordInput = trim($_POST['password'] ?? '');
+
+    if (empty($loginInput) || empty($passwordInput)) {
+        $error_msg = 'Please enter both username/email and password.';
+    } else {
+        try {
+            $stmt = $pdo->prepare("SELECT id, username, email, password, name FROM {$usersTable} WHERE username = ? OR email = ? LIMIT 1");
+            $stmt->execute([$loginInput, $loginInput]);
+            $user = $stmt->fetch();
+
+            if ($user && password_verify($passwordInput, $user['password'])) {
+                // Login successful - Set session
+                $_SESSION['user_id'] = $user['id'];
+                $_SESSION['username'] = $user['username'];
+                $_SESSION['email'] = $user['email'];
+                $_SESSION['user_name'] = !empty($user['name']) ? $user['name'] : $user['username'];
+
+                header('Location: ../index.php');
+                exit;
+            } else {
+                $error_msg = 'Invalid username/email or password.';
+            }
+        } catch (Exception $e) {
+            $error_msg = 'Authentication error: ' . $e->getMessage();
+        }
+    }
+}
+?>
+<!doctype html>
+<html lang="en">
+  <!--begin::Head-->
+  <head>
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+    <title><?= htmlspecialchars(env('APP_NAME', 'Monitoring')) ?> | Login</title>
+
+    <!--begin::Theme Init (Light Mode Only)-->
+    <script>
+      (() => {
+        'use strict';
+        try {
+          localStorage.removeItem('lte-theme');
+        } catch {}
+        document.documentElement.setAttribute('data-bs-theme', 'light');
+        document.documentElement.setAttribute('data-lte-color-mode', 'off');
+        document.documentElement.style.colorScheme = 'light';
+      })();
+    </script>
+    <!--end::Theme Init-->
+
+    <!--begin::Accessibility Meta Tags-->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes" />
+    <meta name="color-scheme" content="light" />
+    <meta name="theme-color" content="#007bff" />
+    <!--end::Accessibility Meta Tags-->
+
+    <!--begin::Primary Meta Tags-->
+    <meta name="title" content="<?= htmlspecialchars(env('APP_NAME', 'Monitoring')) ?> | Login" />
+    <meta name="author" content="ColorlibHQ" />
+    <meta
+      name="description"
+      content="AdminLTE is a free Bootstrap 5 admin dashboard template with almost 50 example pages, built with vanilla JS and designed with accessibility in mind."
+    />
+    <!--end::Primary Meta Tags-->
+
+    <meta name="supported-color-schemes" content="light" />
+    <link rel="preload" href="../css/adminlte.css" as="style" />
+
+    <!--begin::Local Fonts & Third Party Plugins-->
+    <link rel="stylesheet" href="../assets/vendor/source-sans-3/index.css" />
+    <link rel="stylesheet" href="../assets/vendor/css/overlayscrollbars.min.css" />
+    <link rel="stylesheet" href="../assets/vendor/bootstrap-icons/bootstrap-icons.min.css" />
+    <link rel="stylesheet" href="../css/adminlte.css" />
+    <!--end::Local Fonts & Third Party Plugins-->
+  </head>
+  <!--end::Head-->
+
+  <!--begin::Body-->
+  <body class="login-page bg-body-secondary">
+    <main class="login-box">
+      <div class="login-logo mb-3">
+        <a href="./login.php" class="text-decoration-none"><b><?= htmlspecialchars(env('APP_SHORT_NAME', env('APP_NAME', 'Monitoring'))) ?></b></a>
+      </div>
+      <!-- /.login-logo -->
+
+      <div class="card shadow-sm border-0">
+        <div class="card-body login-card-body p-4">
+          <p class="login-box-msg text-secondary mb-3">Sign in to start your session</p>
+
+          <?php if (!empty($error_msg)): ?>
+            <div class="alert alert-danger py-2 px-3 fs-7 mb-3" role="alert">
+              <i class="bi bi-exclamation-circle-fill me-1"></i>
+              <?= htmlspecialchars($error_msg) ?>
+            </div>
+          <?php endif; ?>
+
+          <?php if (!empty($success_msg)): ?>
+            <div class="alert alert-success py-2 px-3 fs-7 mb-3" role="alert">
+              <i class="bi bi-check-circle-fill me-1"></i>
+              <?= htmlspecialchars($success_msg) ?>
+            </div>
+          <?php endif; ?>
+
+          <form action="./login.php" method="post">
+            <label class="visually-hidden" for="loginUsername">Username or Email</label>
+            <div class="input-group mb-3">
+              <input
+                id="loginUsername"
+                name="username"
+                type="text"
+                class="form-control"
+                placeholder="Email or Username"
+                value="<?= htmlspecialchars($_POST['username'] ?? '') ?>"
+                required
+                autofocus
+              />
+              <div class="input-group-text">
+                <span class="bi bi-person"></span>
+              </div>
+            </div>
+
+            <label class="visually-hidden" for="loginPassword">Password</label>
+            <div class="input-group mb-3">
+              <input
+                id="loginPassword"
+                name="password"
+                type="password"
+                class="form-control"
+                placeholder="Password"
+                required
+              />
+              <div class="input-group-text">
+                <span class="bi bi-lock-fill"></span>
+              </div>
+            </div>
+
+            <!--begin::Row-->
+            <div class="row align-items-center mb-3">
+              <div class="col-8">
+                <div class="form-check">
+                  <input class="form-check-input" type="checkbox" name="remember" value="1" id="flexCheckDefault" />
+                  <label class="form-check-label fs-7" for="flexCheckDefault"> Remember Me </label>
+                </div>
+              </div>
+              <!-- /.col -->
+              <div class="col-4">
+                <div class="d-grid gap-2">
+                  <button type="submit" class="btn btn-primary">Sign In</button>
+                </div>
+              </div>
+              <!-- /.col -->
+            </div>
+            <!--end::Row-->
+          </form>
+        </div>
+        <!-- /.login-card-body -->
+      </div>
+    </main>
+    <!-- /.login-box -->
+
+    <!--begin::Local Required Plugins-->
+    <script src="../assets/vendor/js/overlayscrollbars.browser.es6.min.js"></script>
+    <script src="../assets/vendor/js/popper.min.js"></script>
+    <script src="../assets/vendor/js/bootstrap.bundle.min.js"></script>
+    <script src="../js/adminlte.js"></script>
+    <!--end::Local Required Plugins-->
+  </body>
+  <!--end::Body-->
+</html>

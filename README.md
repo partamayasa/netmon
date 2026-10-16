@@ -39,19 +39,21 @@ web-monitoring/
 ├── .env                      # Environment configuration (ignored in git)
 ├── .env.example              # Sample environment configuration template
 ├── .gitignore                # Git ignore rules
+├── .htaccess                 # Apache rewrite & security protection rules
 ├── index.php                 # Main monitoring dashboard
-├── start_server.bat          # Quick-start script for Windows local server
 ├── README.md                 # Project documentation
 ├── app/
 │   ├── login.php             # User authentication / sign-in page
 │   ├── logout.php            # Session termination handler
-│   └── change_password.php   # AJAX endpoint for password updates
+│   ├── change_password.php   # AJAX endpoint for password updates
+│   └── router.php            # Local PHP CLI built-in web server router
 ├── config/
 │   └── config.php            # Environment loader & PDO database connection
 ├── assets/
 │   ├── img/
+│   │   ├── favicon.svg       # SVG favicon
 │   │   └── default-user.svg  # Default avatar
-│   └── vendor/               # Offline libraries (Bootstrap, Tabulator, Icons, etc.)
+│   └── vendor/               # Offline libraries (Bootstrap, Tabulator, Icons, ALTCHA, etc.)
 ├── css/
 │   └── adminlte.css          # Production AdminLTE styling
 └── js/
@@ -71,14 +73,19 @@ web-monitoring/
 ## Installation & Setup
 
 ### 1. Clone or Download Repository
+
 Place the files into your local directory or web server root.
 
 ### 2. Configure Environment Variables
+
 Copy the sample environment file to create your active `.env`:
+
 ```bash
 cp .env.example .env
 ```
+
 Open `.env` and fill in your database credentials:
+
 ```env
 # Application Settings
 APP_NAME="Home Internet Monitoring System"
@@ -102,9 +109,11 @@ ADMIN_DEFAULT_NAME=Administrator
 ```
 
 ### 3. Database Tables
+
 The application automatically creates the `users` table and seeds the default admin user upon first access to `app/login.php`.
 
 For the internet logs table (`internet_logs`), ensure your logging client inserts records with the following schema:
+
 ```sql
 CREATE TABLE IF NOT EXISTS internet_logs (
     id INT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
@@ -113,26 +122,73 @@ CREATE TABLE IF NOT EXISTS internet_logs (
     created_at INT UNSIGNED NOT NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 ```
+
 *(Note: `created_at` supports both Unix timestamps and standard `YYYY-MM-DD HH:MM:SS` strings).*
 
 ---
 
-## Running the Application
+## Running the Application & Clean URLs
 
-### Option A: Using Windows Batch Script (Recommended for Windows)
-Double-click `start_server.bat` in the project root:
-```cmd
-start_server.bat
-```
+The application uses clean, masked URLs without exposing `.php` extensions or internal directories:
 
-### Option B: Using PHP Built-in Server
-Run the following command from the project root:
+- `/` $\rightarrow$ Main Monitoring Dashboard
+- `/login` $\rightarrow$ Sign In Page (masked from `app/login.php`)
+- `/logout` $\rightarrow$ Sign Out Handler (masked from `app/logout.php`)
+- `/change-password` $\rightarrow$ Password Update Endpoint (masked from `app/change_password.php`)
+
+### Option A: Using PHP Built-in Server (Local Development)
+
+Run the built-in server with the bundled router script:
+
 ```bash
-php -S 0.0.0.0:8000 -t .
+php -S 0.0.0.0:8000 app/router.php
 ```
 
-### Option C: Apache / Nginx
-Point the web server's document root to the project root directory.
+Access the application at `http://localhost:8000/login`.
+
+### Option B: Apache / Docker (cPanel, VPS, Docker container)
+
+The included [.htaccess](.htaccess) automatically handles clean URL rewriting and blocks sensitive directories (`config/`, `.env`, `app/router.php`). Ensure `mod_rewrite` is enabled:
+
+```bash
+# In Debian/Ubuntu / Docker container:
+a2enmod rewrite
+```
+
+### Option C: Nginx
+
+Point the `root` directive to the project folder and configure clean URL rewrites in your server block:
+
+```nginx
+location / {
+    try_files $uri $uri/ /index.php?$query_string;
+}
+
+location = /login {
+    fastcgi_pass php-fpm;
+    fastcgi_param SCRIPT_FILENAME $document_root/app/login.php;
+    include fastcgi_params;
+}
+
+location = /logout {
+    fastcgi_pass php-fpm;
+    fastcgi_param SCRIPT_FILENAME $document_root/app/logout.php;
+    include fastcgi_params;
+}
+
+location = /change-password {
+    fastcgi_pass php-fpm;
+    fastcgi_param SCRIPT_FILENAME $document_root/app/change_password.php;
+    include fastcgi_params;
+}
+
+location ~ /\.(env|git) {
+    deny all;
+}
+location ^~ /config/ {
+    deny all;
+}
+```
 
 ---
 

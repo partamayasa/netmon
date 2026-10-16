@@ -1,9 +1,22 @@
 <?php
 require_once __DIR__ . '/config/config.php';
 
+// Handle direct logout request fallback
+if (isset($_GET['logout']) || (isset($_GET['action']) && $_GET['action'] === 'logout')) {
+    $_SESSION = [];
+    session_unset();
+    if (ini_get("session.use_cookies")) {
+        setcookie(session_name(), '', time() - 42000, '/');
+    }
+    session_destroy();
+    session_write_close();
+    header('Location: /login');
+    exit;
+}
+
 // Ensure user is authenticated before accessing monitoring data
 if (!isset($_SESSION['user_id'])) {
-    header('Location: app/login.php');
+    header('Location: /login');
     exit;
 }
 
@@ -44,7 +57,7 @@ try {
 $totalLogs = count($logs);
 $latestLog = !empty($logs) ? $logs[0] : null;
 
-// Format last update & parse timestamp
+// Format last update & parse timestamp (yyyy-mm-dd hh:mm)
 $rawCreatedAt = $latestLog['created_at'] ?? null;
 $timestamp = null;
 if (!empty($rawCreatedAt)) {
@@ -53,11 +66,11 @@ if (!empty($rawCreatedAt)) {
         if ($timestamp > 10000000000) {
             $timestamp = (int)($timestamp / 1000);
         }
-        $formattedLastUpdate = date('Y-m-d H:i:s', $timestamp);
+        $formattedLastUpdate = date('Y-m-d H:i', $timestamp);
     } else {
         $parsedTime = strtotime($rawCreatedAt);
         $timestamp = $parsedTime ?: null;
-        $formattedLastUpdate = $parsedTime ? date('Y-m-d H:i:s', $parsedTime) : $rawCreatedAt;
+        $formattedLastUpdate = $parsedTime ? date('Y-m-d H:i', $parsedTime) : $rawCreatedAt;
     }
 } else {
     $formattedLastUpdate = '-';
@@ -119,32 +132,14 @@ $latestIp = !empty($latestLog['public_ip']) ? trim($latestLog['public_ip']) : '-
     <!--end::Primary Meta Tags-->
 
     <meta name="supported-color-schemes" content="light" />
+    <link rel="icon" type="image/svg+xml" href="assets/img/favicon.svg" />
     <link rel="preload" href="./css/adminlte.css" as="style" />
 
-    <!--begin::Fonts-->
-    <link
-      rel="stylesheet"
-      href="https://cdn.jsdelivr.net/npm/@fontsource/source-sans-3@5.3.0/index.css"
-      integrity="sha256-5UwXtC6TaPHCAbVQ59waEAqOssHyhn/twyuLRRWszzo="
-      crossorigin="anonymous"
-    />
-    <!--end::Fonts-->
-
-    <!--begin::Third Party Plugin(OverlayScrollbars)-->
-    <link
-      rel="stylesheet"
-      href="https://cdn.jsdelivr.net/npm/overlayscrollbars@2.16.0/styles/overlayscrollbars.min.css"
-      crossorigin="anonymous"
-    />
-    <!--end::Third Party Plugin(OverlayScrollbars)-->
-
-    <!--begin::Third Party Plugin(Bootstrap Icons)-->
-    <link
-      rel="stylesheet"
-      href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.13.1/font/bootstrap-icons.min.css"
-      crossorigin="anonymous"
-    />
-    <!--end::Third Party Plugin(Bootstrap Icons)-->
+    <!--begin::Local Fonts & Third Party Plugins-->
+    <link rel="stylesheet" href="./assets/vendor/source-sans-3/index.css" />
+    <link rel="stylesheet" href="./assets/vendor/css/overlayscrollbars.min.css" />
+    <link rel="stylesheet" href="./assets/vendor/bootstrap-icons/bootstrap-icons.min.css" />
+    <!--end::Local Fonts & Third Party Plugins-->
 
     <!--begin::Required Plugin(AdminLTE)-->
     <link rel="stylesheet" href="./css/adminlte.css?v=<?= filemtime(__DIR__ . '/css/adminlte.css') ?>" />
@@ -209,7 +204,7 @@ $latestIp = !empty($latestLog['public_ip']) ? trim($latestLog['public_ip']) : '-
                   <button type="button" class="btn btn-default btn-flat text-nowrap" data-bs-toggle="modal" data-bs-target="#changePasswordModal">
                     <i class="bi bi-key me-1"></i> Change Password
                   </button>
-                  <a href="./app/logout.php" class="btn btn-default btn-flat text-nowrap">
+                  <a href="/logout" class="btn btn-default btn-flat text-nowrap">
                     <i class="bi bi-box-arrow-right me-1"></i> Sign out
                   </a>
                 </li>
@@ -557,20 +552,26 @@ $latestIp = !empty($latestLog['public_ip']) ? trim($latestLog['public_ip']) : '-
             {
               title: 'Created At',
               field: 'created_at',
-              sorter: 'number',
+              sorter: 'string',
               formatter: (cell) => {
-                const val = Number(cell.getValue());
-                if (!val || isNaN(val)) return cell.getValue();
-                const d = new Date(val * 1000);
+                const raw = cell.getValue();
+                if (!raw) return '-';
+                let d;
+                const num = Number(raw);
+                if (!isNaN(num) && num > 0) {
+                  d = new Date(num > 10000000000 ? num : num * 1000);
+                } else {
+                  d = new Date(String(raw).replace(/-/g, '/'));
+                }
+                if (isNaN(d.getTime())) return raw;
                 const yyyy = d.getFullYear();
                 const mm = String(d.getMonth() + 1).padStart(2, '0');
                 const dd = String(d.getDate()).padStart(2, '0');
                 const hh = String(d.getHours()).padStart(2, '0');
                 const mi = String(d.getMinutes()).padStart(2, '0');
-                const ss = String(d.getSeconds()).padStart(2, '0');
-                return `${yyyy}-${mm}-${dd} ${hh}:${mi}:${ss}`;
+                return `${yyyy}-${mm}-${dd} ${hh}:${mi}`;
               },
-              width: 180,
+              width: 170,
             },
           ],
         });
@@ -706,7 +707,7 @@ $latestIp = !empty($latestLog['public_ip']) ? trim($latestLog['public_ip']) : '-
 
             try {
               const formData = new FormData(formChangePwd);
-              const response = await fetch('app/change_password.php', {
+              const response = await fetch('change-password', {
                 method: 'POST',
                 body: formData,
               });

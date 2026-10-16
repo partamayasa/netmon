@@ -1,0 +1,22 @@
+RewriteEngine On
+RewriteBase /
+
+# Block direct access to sensitive files and directories
+RewriteRule ^(\.env|\.git|config/|app/router\.php|net-probe/) - [F,L]
+
+# Redirect physical /app/login.php directly to /login
+RewriteCond %{THE_REQUEST} \s/+app/login(\.php)?[\s?] [NC]
+RewriteRule ^ /login [R=301,L]
+
+# Redirect physical /app/logout.php directly to /logout
+RewriteCond %{THE_REQUEST} \s/+app/logout(\.php)?[\s?] [NC]
+RewriteRule ^ /logout [R=301,L]
+
+# Redirect physical /app/change_password.php directly to /change-password
+RewriteCond %{THE_REQUEST} \s/+app/change_password(\.php)?[\s?] [NC]
+RewriteRule ^ /change-password [R=301,L]
+
+# Clean URL Routes
+RewriteRule ^login/?$ app/login.php [L,QSA]
+RewriteRule ^logout/?$ app/logout.php [L,QSA]
+RewriteRule ^change-password/?$ app/change_password.php [L,QSA]

@@ -112,13 +112,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $pdo) {
     <!--end::Primary Meta Tags-->
 
     <meta name="supported-color-schemes" content="light" />
-    <link rel="preload" href="../css/adminlte.css" as="style" />
+    <link rel="icon" type="image/svg+xml" href="assets/img/favicon.svg" />
+    <link rel="preload" href="css/adminlte.css" as="style" />
 
     <!--begin::Local Fonts & Third Party Plugins-->
-    <link rel="stylesheet" href="../assets/vendor/source-sans-3/index.css" />
-    <link rel="stylesheet" href="../assets/vendor/css/overlayscrollbars.min.css" />
-    <link rel="stylesheet" href="../assets/vendor/bootstrap-icons/bootstrap-icons.min.css" />
-    <link rel="stylesheet" href="../css/adminlte.css" />
+    <link rel="stylesheet" href="assets/vendor/source-sans-3/index.css" />
+    <link rel="stylesheet" href="assets/vendor/css/overlayscrollbars.min.css" />
+    <link rel="stylesheet" href="assets/vendor/bootstrap-icons/bootstrap-icons.min.css" />
+    <link rel="stylesheet" href="css/adminlte.css" />
     <!--end::Local Fonts & Third Party Plugins-->
   </head>
   <!--end::Head-->
@@ -127,7 +128,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $pdo) {
   <body class="login-page bg-body-secondary">
     <main class="login-box">
       <div class="login-logo mb-3">
-        <a href="./login.php" class="text-decoration-none"><b><?= htmlspecialchars(env('APP_SHORT_NAME', env('APP_NAME', 'Monitoring'))) ?></b></a>
+        <a href="./" class="text-decoration-none"><b><?= htmlspecialchars(env('APP_SHORT_NAME', env('APP_NAME', 'Monitoring'))) ?></b></a>
       </div>
       <!-- /.login-logo -->
 
@@ -149,7 +150,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $pdo) {
             </div>
           <?php endif; ?>
 
-          <form action="./login.php" method="post">
+          <form action="login" method="post">
             <label class="visually-hidden" for="loginUsername">Username or Email</label>
             <div class="input-group mb-3">
               <input
@@ -207,10 +208,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $pdo) {
     <!-- /.login-box -->
 
     <!--begin::Local Required Plugins-->
-    <script src="../assets/vendor/js/overlayscrollbars.browser.es6.min.js"></script>
-    <script src="../assets/vendor/js/popper.min.js"></script>
-    <script src="../assets/vendor/js/bootstrap.bundle.min.js"></script>
-    <script src="../js/adminlte.js"></script>
+    <script src="assets/vendor/js/overlayscrollbars.browser.es6.min.js"></script>
+    <script src="assets/vendor/js/popper.min.js"></script>
+    <script src="assets/vendor/js/bootstrap.bundle.min.js"></script>
+    <script src="js/adminlte.js"></script>
     <!--end::Local Required Plugins-->
   </body>
   <!--end::Body-->

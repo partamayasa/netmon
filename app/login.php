@@ -1,9 +1,9 @@
 <?php
 require_once dirname(__DIR__) . '/config/config.php';
 
-// If already logged in, redirect to index.php
+// If already logged in, redirect to home
 if (isset($_SESSION['user_id'])) {
-    header('Location: ../index.php');
+    header('Location: ./');
     exit;
 }
 
@@ -44,33 +44,113 @@ try {
     $error_msg = 'Database connection error: ' . $e->getMessage();
 }
 
+// ALTCHA Configuration
+$altchaApiKey = env('ALTCHA_API_KEY', 'altcha_key_cfcf19784ea0bd2e5cfdd7544daf2947');
+$altchaChallengeUrl = env('ALTCHA_CHALLENGE_URL', 'https://altcha.silverlightning.my.id/challenge?apiKey=' . $altchaApiKey);
+$altchaVerifyUrl = env('ALTCHA_VERIFY_URL', 'https://altcha.silverlightning.my.id/verify');
+
+// Ensure HTTPS is always enforced to prevent browser Mixed-Content blocking
+$altchaChallengeUrl = preg_replace('/^http:\/\//i', 'https://', $altchaChallengeUrl);
+$altchaVerifyUrl = preg_replace('/^http:\/\//i', 'https://', $altchaVerifyUrl);
+
 // Handle Login Form Submission
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && $pdo) {
     $loginInput = trim($_POST['username'] ?? '');
     $passwordInput = trim($_POST['password'] ?? '');
+    $altchaPayload = trim($_POST['altcha'] ?? ($_POST['payload'] ?? ''));
 
     if (empty($loginInput) || empty($passwordInput)) {
         $error_msg = 'Please enter both username/email and password.';
+    } elseif (empty($altchaPayload)) {
+        $error_msg = 'Please complete the security verification (ALTCHA).';
     } else {
-        try {
-            $stmt = $pdo->prepare("SELECT id, username, email, password, name FROM {$usersTable} WHERE username = ? OR email = ? LIMIT 1");
-            $stmt->execute([$loginInput, $loginInput]);
-            $user = $stmt->fetch();
+        // Verify ALTCHA Payload with verification server
+        $altchaVerified = false;
+        $altchaError = null;
+        $postData = json_encode(['payload' => $altchaPayload]);
 
-            if ($user && password_verify($passwordInput, $user['password'])) {
-                // Login successful - Set session
-                $_SESSION['user_id'] = $user['id'];
-                $_SESSION['username'] = $user['username'];
-                $_SESSION['email'] = $user['email'];
-                $_SESSION['user_name'] = !empty($user['name']) ? $user['name'] : $user['username'];
+        if (function_exists('curl_init')) {
+            $ch = curl_init($altchaVerifyUrl);
+            curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+            curl_setopt($ch, CURLOPT_POST, true);
+            curl_setopt($ch, CURLOPT_POSTFIELDS, $postData);
+            curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
+            curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, false);
+            curl_setopt($ch, CURLOPT_HTTPHEADER, [
+                'Content-Type: application/json',
+                'Authorization: Bearer ' . $altchaApiKey,
+                'Origin: https://inetmonitor.silverlightning.my.id',
+            ]);
+            curl_setopt($ch, CURLOPT_TIMEOUT, 10);
+            $response = curl_exec($ch);
+            $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+            $curlErr = curl_error($ch);
+            curl_close($ch);
 
-                header('Location: ../index.php');
-                exit;
+            if ($response !== false) {
+                $decoded = json_decode($response, true);
+                if ($httpCode === 200 && is_array($decoded) && !empty($decoded['success'])) {
+                    $altchaVerified = true;
+                } else {
+                    $altchaError = $decoded['error'] ?? 'Security verification was rejected.';
+                }
             } else {
-                $error_msg = 'Invalid username/email or password.';
+                $altchaError = 'Connection to verification service failed: ' . $curlErr;
             }
-        } catch (Exception $e) {
-            $error_msg = 'Authentication error: ' . $e->getMessage();
+        } else {
+            $opts = [
+                'http' => [
+                    'method'  => 'POST',
+                    'header'  => "Content-Type: application/json\r\n" .
+                                 "Authorization: Bearer " . $altchaApiKey . "\r\n" .
+                                 "Origin: https://inetmonitor.silverlightning.my.id\r\n",
+                    'content' => $postData,
+                    'timeout' => 10,
+                    'ignore_errors' => true
+                ],
+                'ssl' => [
+                    'verify_peer' => false,
+                    'verify_peer_name' => false,
+                ]
+            ];
+            $context = stream_context_create($opts);
+            $response = @file_get_contents($altchaVerifyUrl, false, $context);
+            if ($response !== false) {
+                $decoded = json_decode($response, true);
+                if (is_array($decoded) && !empty($decoded['success'])) {
+                    $altchaVerified = true;
+                } else {
+                    $altchaError = $decoded['error'] ?? 'Security verification was rejected.';
+                }
+            } else {
+                $altchaError = 'Connection to verification service failed.';
+            }
+        }
+
+        if (!$altchaVerified) {
+            $error_msg = $altchaError ?: 'Security verification failed. Please try again.';
+        } else {
+            // ALTCHA passed, authenticate user credentials
+            try {
+                $stmt = $pdo->prepare("SELECT id, username, email, password, name FROM {$usersTable} WHERE username = ? OR email = ? LIMIT 1");
+                $stmt->execute([$loginInput, $loginInput]);
+                $user = $stmt->fetch();
+
+                if ($user && password_verify($passwordInput, $user['password'])) {
+                    // Login successful - Set session
+                    $_SESSION['user_id'] = $user['id'];
+                    $_SESSION['username'] = $user['username'];
+                    $_SESSION['email'] = $user['email'];
+                    $_SESSION['user_name'] = !empty($user['name']) ? $user['name'] : $user['username'];
+
+                    header('Location: ./');
+                    exit;
+                } else {
+                    $error_msg = 'Invalid username/email or password.';
+                }
+            } catch (Exception $e) {
+                $error_msg = 'Authentication error: ' . $e->getMessage();
+            }
         }
     }
 }
@@ -113,6 +193,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $pdo) {
 
     <meta name="supported-color-schemes" content="light" />
     <link rel="icon" type="image/svg+xml" href="assets/img/favicon.svg" />
+    <link rel="alternate icon" href="favicon.svg" />
     <link rel="preload" href="css/adminlte.css" as="style" />
 
     <!--begin::Local Fonts & Third Party Plugins-->
@@ -121,6 +202,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $pdo) {
     <link rel="stylesheet" href="assets/vendor/bootstrap-icons/bootstrap-icons.min.css" />
     <link rel="stylesheet" href="css/adminlte.css" />
     <!--end::Local Fonts & Third Party Plugins-->
+
+    <script src="assets/vendor/altcha/altcha.min.js" defer></script>
+
+    <style>
+      altcha-widget {
+        --altcha-max-width: 100%;
+        width: 100%;
+        display: block;
+        min-height: 70px;
+      }
+      .altcha {
+        display: block !important;
+      }
+    </style>
   </head>
   <!--end::Head-->
 
@@ -182,6 +277,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $pdo) {
                 <span class="bi bi-lock-fill"></span>
               </div>
             </div>
+
+            <!--begin::ALTCHA Widget-->
+            <div class="mb-3">
+              <altcha-widget challengeurl="<?= htmlspecialchars($altchaChallengeUrl) ?>" display="standard"></altcha-widget>
+            </div>
+            <!--end::ALTCHA Widget-->
 
             <!--begin::Row-->
             <div class="row align-items-center mb-3">

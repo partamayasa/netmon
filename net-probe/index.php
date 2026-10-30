@@ -1,24 +1,11 @@
 <?php
 date_default_timezone_set('Asia/Makassar');
 
-// Load configuration directly from main .env file
-$env = [];
-$mainEnvFile = dirname(__DIR__) . '/.env';
-if (file_exists($mainEnvFile)) {
-    foreach (file($mainEnvFile, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES) as $line) {
-        if (strpos(trim($line), '#') === 0) continue;
-        if (strpos($line, '=') !== false) {
-            [$key, $value] = explode('=', $line, 2);
-            $env[trim($key)] = trim($value, " \t\n\r\0\x0B\"'");
-        }
-    }
-}
-
 // Gateway Ping Configuration
-$ping_host     = !empty($env['PROBE_PING_HOST']) ? trim($env['PROBE_PING_HOST']) : '100.64.0.1';
-$ping_duration = !empty($env['PROBE_PING_DURATION']) ? (int)$env['PROBE_PING_DURATION'] : 20;
-$ping_timeout  = !empty($env['PROBE_PING_TIMEOUT']) ? (int)$env['PROBE_PING_TIMEOUT'] : 5;
-$ping_count    = !empty($env['PROBE_PING_COUNT']) ? (int)$env['PROBE_PING_COUNT'] : 10;
+$ping_host     = '100.64.0.1';
+$ping_duration = 30;
+$ping_timeout  = 5;
+$ping_count    = 10;
 
 /**
  * Execute a single ping request to the target host.
@@ -120,20 +107,5 @@ $isConnected = $pingResult['is_connected'];
 
 // 2. Determine connection status
 $status = $isConnected ? 'Connected' : 'Disconnected';
-$time = time();
 
 echo "[" . date('H:i:s') . "] Final Result: status={$status}" . PHP_EOL;
-
-// 3. Save gateway ping status to JSON file for Dashboard Connection Status indicator
-$statusFile = dirname(__DIR__) . '/gateway_status.json';
-$dataToSave = [
-    'status'       => $status,
-    'gateway'      => $ping_host,
-    'total_pings'  => $pingResult['total_pings'],
-    'failed_pings' => $pingResult['failed_pings'],
-    'updated_at'   => $time,
-    'updated_date' => date('Y-m-d H:i:s', $time),
-];
-
-@file_put_contents($statusFile, json_encode($dataToSave, JSON_PRETTY_PRINT));
-echo "[" . date('H:i:s') . "] Status saved to JSON: {$statusFile}" . PHP_EOL;

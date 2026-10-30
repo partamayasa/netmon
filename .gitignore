@@ -1,3 +1,2 @@
 .env
 *.log
-gateway_status.json

@@ -43,6 +43,11 @@ switch ($route) {
         require __DIR__ . '/change_password.php';
         break;
 
+    case 'api/ping':
+    case 'app/ping.php':
+        require __DIR__ . '/ping.php';
+        break;
+
     default:
         http_response_code(404);
         echo '404 Not Found';

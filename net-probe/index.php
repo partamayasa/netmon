@@ -1,12 +1,6 @@
 <?php
 date_default_timezone_set('Asia/Makassar');
 
-// Gateway Ping Configuration
-$ping_host     = '100.64.0.1';
-$ping_duration = 30;
-$ping_timeout  = 5;
-$ping_count    = 10;
-
 /**
  * Execute a single ping request to the target host.
  *
@@ -102,7 +96,7 @@ function testConnectionOverDuration($host = '100.64.0.1', $durationSeconds = 30,
 }
 
 // 1. Execute ping test to gateway for specified duration (up to 30 seconds or max 10 pings)
-$pingResult = testConnectionOverDuration($ping_host, $ping_duration, $ping_timeout, $ping_count);
+$pingResult = testConnectionOverDuration();
 $isConnected = $pingResult['is_connected'];
 
 // 2. Determine connection status

@@ -16,7 +16,12 @@ RewriteRule ^ /logout [R=301,L]
 RewriteCond %{THE_REQUEST} \s/+app/change_password(\.php)?[\s?] [NC]
 RewriteRule ^ /change-password [R=301,L]
 
+# Redirect physical /app/ping.php directly to /api/ping
+RewriteCond %{THE_REQUEST} \s/+app/ping(\.php)?[\s?] [NC]
+RewriteRule ^ /api/ping [R=301,L]
+
 # Clean URL Routes
 RewriteRule ^login/?$ app/login.php [L,QSA]
 RewriteRule ^logout/?$ app/logout.php [L,QSA]
 RewriteRule ^change-password/?$ app/change_password.php [L,QSA]
+RewriteRule ^api/ping/?$ app/ping.php [L,QSA]

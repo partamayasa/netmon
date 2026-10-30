@@ -63,25 +63,70 @@ if (!empty($rawCreatedAt)) {
     $formattedLastUpdate = '-';
 }
 
-// Connection Status based on 15-minute interval:
-// If latest log is within interval <= 15 minutes (900 seconds) -> Connected (Green)
-// If latest log was recorded > 15 minutes ago (or no logs) -> Disconnected (Red)
-$currentTime = time();
-$diffSeconds = ($timestamp !== null) ? ($currentTime - $timestamp) : null;
-$fifteenMinutesInSeconds = 15 * 60; // 900 seconds
+// Connection Status: Exclusively determined by incoming HTTP Ping from ping_logs.json
+function find_readable_ping_log_path() {
+    $candidates = [
+        __DIR__ . '/ping_logs.json',
+        __DIR__ . '/app/ping_logs.json',
+        sys_get_temp_dir() . '/netmon_ping_logs.json',
+    ];
+    foreach ($candidates as $path) {
+        if (file_exists($path) && filesize($path) > 0) {
+            return $path;
+        }
+    }
+    return null;
+}
 
-if ($diffSeconds !== null && $diffSeconds <= $fifteenMinutesInSeconds) {
-    $latestStatus = 'Connected';
+$pingLogFile = find_readable_ping_log_path();
+$pingLogs = ($pingLogFile !== null) ? @json_decode(@file_get_contents($pingLogFile), true) : null;
+$latestPing = (!empty($pingLogs) && is_array($pingLogs)) ? $pingLogs[0] : null;
+$pingTimestamp = !empty($latestPing['created_at']) ? (int)$latestPing['created_at'] : null;
+
+$currentTime = time();
+$diffSeconds = ($pingTimestamp !== null) ? ($currentTime - $pingTimestamp) : null;
+$heartbeatTimeout = (int)env('HEARTBEAT_TIMEOUT', 120); // 120s (2 min) tolerance for 1-minute ping interval
+
+$statusTimeStr = ($pingTimestamp !== null) ? ' (' . date('H:i', $pingTimestamp) . ')' : '';
+
+if ($diffSeconds !== null && $diffSeconds <= $heartbeatTimeout) {
+    $latestStatus = 'Connected' . $statusTimeStr;
     $statusBgClass = 'text-bg-success';
     $statusIconClass = 'bi-wifi';
 } else {
-    $latestStatus = 'Disconnected';
+    $latestStatus = 'Disconnected' . $statusTimeStr;
     $statusBgClass = 'text-bg-danger';
     $statusIconClass = 'bi-wifi-off';
 }
 
 // Latest Public IP
 $latestIp = !empty($latestLog['public_ip']) ? trim($latestLog['public_ip']) : '-';
+
+// API endpoints for real-time dashboard polling
+if (isset($_GET['api'])) {
+    header('Content-Type: application/json; charset=utf-8');
+    if ($_GET['api'] === 'status') {
+        echo json_encode([
+            'status'          => $latestStatus,
+            'is_connected'    => ($diffSeconds !== null && $diffSeconds <= $heartbeatTimeout),
+            'last_updated'    => $formattedLastUpdate,
+            'last_timestamp'  => $pingTimestamp ?: $timestamp,
+            'diff_seconds'    => $diffSeconds,
+            'total_logs'      => $totalLogs,
+            'latest_ip'       => $latestIp,
+            'total_ping_logs' => is_array($pingLogs) ? count($pingLogs) : 0,
+        ]);
+        exit;
+    }
+    if ($_GET['api'] === 'logs') {
+        echo json_encode($logs);
+        exit;
+    }
+    if ($_GET['api'] === 'ping-logs') {
+        echo json_encode($pingLogs ?: []);
+        exit;
+    }
+}
 ?>
 <!doctype html>
 <html lang="en">
@@ -608,29 +653,62 @@ $latestIp = !empty($latestLog['public_ip']) ? trim($latestLog['public_ip']) : '-
           .getElementById('export-json')
           .addEventListener('click', () => table.download('json', 'internet_logs.json'));
 
-        // Auto-update status every 15-minute interval if page remains open
-        const lastLogTimestamp = <?= $timestamp ? (int)$timestamp : 0 ?>;
-        if (lastLogTimestamp > 0) {
-          const checkStatusInterval = () => {
-            const nowSec = Math.floor(Date.now() / 1000);
-            const diff = nowSec - lastLogTimestamp;
-            const iconBox = document.getElementById('card-status-icon-box');
-            const icon = document.getElementById('card-status-icon');
-            const text = document.getElementById('card-status-text');
-            if (!iconBox || !icon || !text) return;
+        // Live real-time dashboard polling every 15 seconds
+        let lastKnownTotal = <?= (int)$totalLogs ?>;
+        const updateDashboardStatus = async () => {
+          try {
+            const res = await fetch('./?api=status', { cache: 'no-store' });
+            if (!res.ok) return;
+            const data = await res.json();
+            if (!data) return;
 
-            if (diff <= 15 * 60) {
-              iconBox.className = 'info-box-icon text-bg-success shadow-sm';
-              icon.className = 'bi bi-wifi';
-              text.textContent = 'Connected';
-            } else {
-              iconBox.className = 'info-box-icon text-bg-danger shadow-sm';
-              icon.className = 'bi bi-wifi-off';
-              text.textContent = 'Disconnected';
+            const cardTotal = document.getElementById('card-total-logs');
+            const cardUpdated = document.getElementById('card-last-updated');
+            const cardStatusBox = document.getElementById('card-status-icon-box');
+            const cardStatusIcon = document.getElementById('card-status-icon');
+            const cardStatusText = document.getElementById('card-status-text');
+            const cardIp = document.getElementById('card-latest-ip');
+
+            if (cardTotal && data.total_logs !== undefined) {
+              cardTotal.textContent = Number(data.total_logs).toLocaleString();
             }
-          };
-          setInterval(checkStatusInterval, 30000);
-        }
+            if (cardUpdated && data.last_updated) {
+              cardUpdated.textContent = data.last_updated;
+            }
+            if (cardIp && data.latest_ip) {
+              cardIp.textContent = data.latest_ip;
+            }
+
+            if (cardStatusBox && cardStatusIcon && cardStatusText) {
+              if (data.is_connected) {
+                cardStatusBox.className = 'info-box-icon text-bg-success shadow-sm';
+                cardStatusIcon.className = 'bi bi-wifi';
+                cardStatusText.textContent = data.status || 'Connected';
+              } else {
+                cardStatusBox.className = 'info-box-icon text-bg-danger shadow-sm';
+                cardStatusIcon.className = 'bi bi-wifi-off';
+                cardStatusText.textContent = data.status || 'Disconnected';
+              }
+            }
+
+            // Dynamically refresh table data if new logs arrived
+            if (data.total_logs > lastKnownTotal) {
+              lastKnownTotal = data.total_logs;
+              const logsRes = await fetch('./?api=logs', { cache: 'no-store' });
+              if (logsRes.ok) {
+                const newLogs = await logsRes.json();
+                if (Array.isArray(newLogs)) {
+                  table.setData(newLogs);
+                }
+              }
+            }
+          } catch (e) {
+            // Ignore fetch errors
+          }
+        };
+
+        // Poll every 15 seconds
+        setInterval(updateDashboardStatus, 15000);
 
         // ==========================================
         // Change Password Feature (Modal Popup)

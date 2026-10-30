@@ -136,6 +136,7 @@ The application uses clean, masked URLs without exposing `.php` extensions or in
 - `/login` $\rightarrow$ Sign In Page (masked from `app/login.php`)
 - `/logout` $\rightarrow$ Sign Out Handler (masked from `app/logout.php`)
 - `/change-password` $\rightarrow$ Password Update Endpoint (masked from `app/change_password.php`)
+- `/api/ping` $\rightarrow$ HTTP Heartbeat Ping Endpoint (masked from `app/ping.php`)
 
 ### Option A: Using PHP Built-in Server (Local Development)
 
